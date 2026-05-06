@@ -87,11 +87,15 @@ function buildActionPayload(interaction) {
 
 async function forwardToN8n(payload) {
   const webhookUrl = process.env.N8N_INTERACTION_WEBHOOK_URL;
-  const sharedSecret = process.env.N8N_SHARED_SECRET;
+  const sharedSecret = process.env.N8N_SHARED_SECRET || '';
 
-  if (!webhookUrl || !sharedSecret) {
-    console.error('Variables n8n manquantes');
-    return;
+  if (!webhookUrl) {
+    return {
+      ok: false,
+      status: 0,
+      body: '',
+      error: 'N8N_INTERACTION_WEBHOOK_URL manquant',
+    };
   }
 
   try {
@@ -104,82 +108,154 @@ async function forwardToN8n(payload) {
       body: JSON.stringify(payload),
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      console.error('Erreur n8n:', response.status, text);
+    let body = '';
+
+    try {
+      body = await response.text();
+    } catch (error) {
+      body = '';
     }
+
+    console.log('Transmission n8n:', {
+      ok: response.ok,
+      status: response.status,
+      body,
+    });
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+      error: '',
+    };
   } catch (error) {
-    console.error('Impossible de transmettre à n8n:', error);
+    console.error('Erreur transmission n8n:', error);
+
+    return {
+      ok: false,
+      status: 0,
+      body: '',
+      error: error?.message || 'Erreur inconnue',
+    };
   }
 }
 
+function getInteractionLabel(payload) {
+  if (payload.scope === 'batch' && payload.action === 'validate') {
+    return 'Planning complet validé ✅';
+  }
+
+  if (payload.scope === 'batch' && payload.action === 'refuse') {
+    return 'Planning complet refusé ❌';
+  }
+
+  if (payload.scope === 'post' && payload.action === 'validate') {
+    return 'Post validé ✅';
+  }
+
+  if (payload.scope === 'post' && payload.action === 'refuse') {
+    return 'Post refusé ❌';
+  }
+
+  return 'Action reçue.';
+}
+
+function buildDiscordCallbackResponse(payload, n8nResult) {
+  const label = getInteractionLabel(payload);
+
+  const debugLine = n8nResult?.ok
+    ? 'Transmission vers n8n confirmée.'
+    : `Transmission vers n8n non confirmée. Status: ${n8nResult?.status || 0}`;
+
+  return {
+    type: 4,
+    data: {
+      content: `${label}\n${debugLine}`,
+      flags: 64,
+    },
+  };
+}
+
 export async function POST(request) {
-  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+  try {
+    const publicKey = process.env.DISCORD_PUBLIC_KEY;
 
-  const signature = request.headers.get('x-signature-ed25519');
-  const timestamp = request.headers.get('x-signature-timestamp');
+    const signature = request.headers.get('x-signature-ed25519');
+    const timestamp = request.headers.get('x-signature-timestamp');
 
-  const rawBody = await request.text();
+    const rawBody = await request.text();
 
-  const isValid = verifyDiscordSignature({
-    rawBody,
-    signature,
-    timestamp,
-    publicKey,
-  });
-
-  if (!isValid) {
-    return new Response('Invalid request signature', {
-      status: 401,
+    const isValid = verifyDiscordSignature({
+      rawBody,
+      signature,
+      timestamp,
+      publicKey,
     });
-  }
 
-  const interaction = JSON.parse(rawBody);
+    if (!isValid) {
+      console.error('Signature Discord invalide');
 
-  // Discord PING
-  if (interaction.type === 1) {
-    return jsonResponse({
-      type: 1,
-    });
-  }
+      return new Response('Invalid request signature', {
+        status: 401,
+      });
+    }
 
-  // Message component : boutons, menus, etc.
-  if (interaction.type === 3) {
-    const payload = buildActionPayload(interaction);
+    let interaction;
 
-    const n8nResult = await forwardToN8n(payload);
+    try {
+      interaction = JSON.parse(rawBody);
+    } catch (error) {
+      console.error('JSON Discord invalide:', error);
 
-    const label =
-      payload.scope === 'batch' && payload.action === 'validate'
-        ? 'Planning complet validé ✅'
-        : payload.scope === 'batch' && payload.action === 'refuse'
-          ? 'Planning complet refusé ❌'
-          : payload.scope === 'post' && payload.action === 'validate'
-            ? 'Post validé ✅'
-            : payload.scope === 'post' && payload.action === 'refuse'
-              ? 'Post refusé ❌'
-              : 'Action reçue.';
+      return jsonResponse({
+        type: 4,
+        data: {
+          content: 'Payload Discord invalide.',
+          flags: 64,
+        },
+      });
+    }
 
-    const debugLine = n8nResult.ok
-      ? 'Transmission vers n8n confirmée.'
-      : `Transmission vers n8n non confirmée. Status: ${n8nResult.status}`;
+    // Discord PING
+    if (interaction.type === 1) {
+      return jsonResponse({
+        type: 1,
+      });
+    }
+
+    // Boutons / menus Discord
+    if (interaction.type === 3) {
+      const payload = buildActionPayload(interaction);
+
+      console.log('Interaction Discord reçue:', payload);
+
+      const n8nResult = await forwardToN8n(payload);
+
+      return jsonResponse(
+        buildDiscordCallbackResponse(payload, n8nResult),
+        200
+      );
+    }
 
     return jsonResponse({
       type: 4,
       data: {
-        content: `${label}\n${debugLine}`,
+        content: 'Interaction reçue, mais non prise en charge.',
+        flags: 64,
+      },
+    });
+  } catch (error) {
+    console.error('Erreur globale Discord bridge:', error);
+
+    // Important : on retourne quand même une réponse Discord valide
+    return jsonResponse({
+      type: 4,
+      data: {
+        content: `Erreur interne du bridge Discord.\n${error?.message || 'Erreur inconnue'}`,
         flags: 64,
       },
     });
   }
-
-  return jsonResponse({
-    type: 4,
-    data: {
-      content: 'Interaction reçue.',
-      flags: 64
-    },
-  });
 }
 
 export async function GET() {
