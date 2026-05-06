@@ -11,6 +11,6 @@
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "vercel": "^48.8.2"
+    "vercel": "^53.1.1"
   }
 }

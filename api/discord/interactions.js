@@ -29,22 +29,42 @@ function buildActionPayload(interaction) {
   const message = interaction?.message || {};
 
   let action = 'unknown';
+  let scope = 'unknown';
   let batchId = '';
+  let postId = '';
 
-  if (customId.startsWith('amc_validate_')) {
+  if (customId.startsWith('amc_batch_validate_')) {
     action = 'validate';
-    batchId = customId.replace('amc_validate_', '');
+    scope = 'batch';
+    batchId = customId.replace('amc_batch_validate_', '');
   }
 
-  if (customId.startsWith('amc_refuse_')) {
+  if (customId.startsWith('amc_batch_refuse_')) {
     action = 'refuse';
-    batchId = customId.replace('amc_refuse_', '');
+    scope = 'batch';
+    batchId = customId.replace('amc_batch_refuse_', '');
+  }
+
+  if (customId.startsWith('amc_post_validate_')) {
+    action = 'validate';
+    scope = 'post';
+    postId = customId.replace('amc_post_validate_', '');
+    batchId = postId.replace(/-\d+$/, '');
+  }
+
+  if (customId.startsWith('amc_post_refuse_')) {
+    action = 'refuse';
+    scope = 'post';
+    postId = customId.replace('amc_post_refuse_', '');
+    batchId = postId.replace(/-\d+$/, '');
   }
 
   return {
     source: 'discord',
     action,
+    scope,
     batch_id: batchId,
+    post_id: postId,
     custom_id: customId,
 
     interaction_id: interaction.id || '',
@@ -130,11 +150,15 @@ export async function POST(request) {
     forwardToN8n(payload);
 
     const label =
-      payload.action === 'validate'
-        ? 'Validation reçue ✅'
-        : payload.action === 'refuse'
-          ? 'Refus reçu. Je prépare les options de motif.'
-          : 'Action reçue.';
+        payload.scope === 'batch' && payload.action === 'validate'
+            ? 'Planning complet validé ✅'
+            : payload.scope === 'batch' && payload.action === 'refuse'
+            ? 'Planning complet refusé ❌'
+            : payload.scope === 'post' && payload.action === 'validate'
+                ? 'Post validé ✅'
+                : payload.scope === 'post' && payload.action === 'refuse'
+                ? 'Post refusé ❌'
+                : 'Action reçue.';
 
     return jsonResponse({
       type: 4,
