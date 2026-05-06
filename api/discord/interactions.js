@@ -147,27 +147,31 @@ export async function POST(request) {
   if (interaction.type === 3) {
     const payload = buildActionPayload(interaction);
 
-    forwardToN8n(payload);
+    const n8nResult = await forwardToN8n(payload);
 
     const label =
         payload.scope === 'batch' && payload.action === 'validate'
-            ? 'Planning complet validé ✅'
-            : payload.scope === 'batch' && payload.action === 'refuse'
+        ? 'Planning complet validé ✅'
+        : payload.scope === 'batch' && payload.action === 'refuse'
             ? 'Planning complet refusé ❌'
             : payload.scope === 'post' && payload.action === 'validate'
-                ? 'Post validé ✅'
-                : payload.scope === 'post' && payload.action === 'refuse'
+            ? 'Post validé ✅'
+            : payload.scope === 'post' && payload.action === 'refuse'
                 ? 'Post refusé ❌'
                 : 'Action reçue.';
 
+    const debugLine = n8nResult.ok
+        ? 'Transmission vers n8n confirmée.'
+        : `Transmission vers n8n non confirmée. Status: ${n8nResult.status}`;
+
     return jsonResponse({
-      type: 4,
-      data: {
-        content: `${label}\nTraitement en cours dans n8n.`,
-        flags: 64
-      },
+        type: 4,
+        data: {
+        content: `${label}\n${debugLine}`,
+        flags: 64,
+        },
     });
-  }
+    }
 
   return jsonResponse({
     type: 4,
