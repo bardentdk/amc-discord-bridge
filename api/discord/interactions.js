@@ -150,28 +150,28 @@ export async function POST(request) {
     const n8nResult = await forwardToN8n(payload);
 
     const label =
-        payload.scope === 'batch' && payload.action === 'validate'
+      payload.scope === 'batch' && payload.action === 'validate'
         ? 'Planning complet validé ✅'
         : payload.scope === 'batch' && payload.action === 'refuse'
-            ? 'Planning complet refusé ❌'
-            : payload.scope === 'post' && payload.action === 'validate'
+          ? 'Planning complet refusé ❌'
+          : payload.scope === 'post' && payload.action === 'validate'
             ? 'Post validé ✅'
             : payload.scope === 'post' && payload.action === 'refuse'
-                ? 'Post refusé ❌'
-                : 'Action reçue.';
+              ? 'Post refusé ❌'
+              : 'Action reçue.';
 
     const debugLine = n8nResult.ok
-        ? 'Transmission vers n8n confirmée.'
-        : `Transmission vers n8n non confirmée. Status: ${n8nResult.status}`;
+      ? 'Transmission vers n8n confirmée.'
+      : `Transmission vers n8n non confirmée. Status: ${n8nResult.status}`;
 
     return jsonResponse({
-        type: 4,
-        data: {
+      type: 4,
+      data: {
         content: `${label}\n${debugLine}`,
         flags: 64,
-        },
+      },
     });
-    }
+  }
 
   return jsonResponse({
     type: 4,
@@ -186,5 +186,10 @@ export async function GET() {
   return jsonResponse({
     ok: true,
     service: 'AMC Discord Bridge',
+    n8n_webhook_configured: Boolean(process.env.N8N_INTERACTION_WEBHOOK_URL),
+    n8n_webhook_preview: process.env.N8N_INTERACTION_WEBHOOK_URL
+      ? process.env.N8N_INTERACTION_WEBHOOK_URL.replace(/\/webhook\/.*/, '/webhook/***')
+      : null,
+    deployed_at: new Date().toISOString(),
   });
 }
